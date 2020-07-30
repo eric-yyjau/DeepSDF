@@ -375,7 +375,15 @@ def main_function(experiment_directory, continue_from, batch_split):
         )
     )
 
-    loss_l1 = torch.nn.L1Loss(reduction="sum")
+    loss_func = get_spec_with_default(specs, "loss", "l1")
+    logging.info(f"Use {loss_func} loss")
+    if loss_func == "l1":
+        loss_l1 = torch.nn.L1Loss(reduction="sum")
+    elif loss_func == "smoothl1":
+        loss_l1 = torch.nn.SmoothL1Loss(reduction="sum")
+        assert clamp_dist > 0.5, "clamp dist contradicts the smooth loss"
+    else:
+        raise NotImplementedError
 
     optimizer_all = torch.optim.Adam(
         [
@@ -508,7 +516,8 @@ def main_function(experiment_directory, continue_from, batch_split):
 
                     chunk_loss = chunk_loss + reg_loss.cuda()
 
-                chunk_loss.backward()
+                chunk_loss_out = chunk_loss.clone()
+                chunk_loss_out.backward()
 
                 batch_loss += chunk_loss.item()
 
@@ -572,6 +581,15 @@ if __name__ == "__main__":
         + "from the latest running snapshot, or an integer corresponding to "
         + "an epochal snapshot.",
     )
+
+    # arg_parser.add_argument(
+    #     "--loss",
+    #     "-l",
+    #     dest="loss",
+    #     choices=['l1', 'smoothl1'],
+    #     help="loss function",
+    # )
+
     arg_parser.add_argument(
         "--batch_split",
         dest="batch_split",
