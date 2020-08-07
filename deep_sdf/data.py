@@ -168,7 +168,7 @@ class SDFSamples(torch.utils.data.Dataset):
         self.subsample = subsample
 
         self.data_source = data_source
-        self.npyfiles = get_instance_filenames(data_source, ws.sdf_samples_subdir, split)
+        self.npyfiles = get_instance_filenames(data_source, split, ws.sdf_samples_subdir)
 
         logging.debug(
             "using "

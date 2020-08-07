@@ -10,6 +10,7 @@ import logging
 import math
 import json
 import time
+import code
 
 import deep_sdf
 import deep_sdf.workspace as ws
@@ -255,6 +256,8 @@ def main_function(experiment_directory, continue_from, batch_split):
     specs = ws.load_experiment_specifications(experiment_directory)
 
     logging.info(f"Experiment description: \n {specs['Description']}")
+    exp_mode = specs.get('Exp_mode', '')
+    logging.info(f"Experiment mode: {exp_mode}")
 
     data_source = specs["DataSource"]
     train_split_file = specs["TrainSplit"]
@@ -326,9 +329,13 @@ def main_function(experiment_directory, continue_from, batch_split):
 
     code_bound = get_spec_with_default(specs, "CodeBound", None)
 
-    decoder = arch.Decoder(latent_size, **specs["NetworkSpecs"]).cuda()
+    if exp_mode == "IGR":
+        decoder = arch.Decoder(3+latent_size, **specs["NetworkSpecs"]).cuda()
+    else:
+        decoder = arch.Decoder(latent_size, **specs["NetworkSpecs"]).cuda()
 
     logging.info("training with {} GPU(s)".format(torch.cuda.device_count()))
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # if torch.cuda.device_count() > 1:
     decoder = torch.nn.DataParallel(decoder)
@@ -339,9 +346,14 @@ def main_function(experiment_directory, continue_from, batch_split):
     with open(train_split_file, "r") as f:
         train_split = json.load(f)
 
-    sdf_dataset = deep_sdf.data.SDFSamples(
-        data_source, train_split, num_samp_per_scene, load_ram=False
-    )
+    if exp_mode == "IGR":
+        sdf_dataset = deep_sdf.data.SDFSurface(
+            data_source, train_split, num_samp_per_scene, load_ram=False
+        )
+    else:    
+        sdf_dataset = deep_sdf.data.SDFSamples(
+            data_source, train_split, num_samp_per_scene, load_ram=False
+        )
 
     num_data_loader_threads = get_spec_with_default(specs, "DataLoaderThreads", 1)
     logging.debug("loading data with {} threads".format(num_data_loader_threads))
@@ -469,67 +481,151 @@ def main_function(experiment_directory, continue_from, batch_split):
 
         for sdf_data, indices in sdf_loader:
 
-            # Process the input data
-            sdf_data = sdf_data.reshape(-1, 4)
+            # if exp_mode == "IGR":
+            #     pass
+            # else:
+            
+            def train_igr_sample(sdf_data, indices):
+                # get points
+                (mnfld_pnts, nonmnfld_pnts) = sdf_data
 
-            num_sdf_samples = sdf_data.shape[0]
+                mnfld_pnts = mnfld_pnts.reshape(-1, 3)
+                nonmnfld_pnts = nonmnfld_pnts.reshape(-1, 3)
+                # indices = indices.to(device)
+                mnfld_pnts, nonmnfld_pnts = mnfld_pnts.to(device), nonmnfld_pnts.to(device)
 
-            sdf_data.requires_grad = False
+                mnfld_pnts.requires_grad_()
+                nonmnfld_pnts.requires_grad_()
 
-            xyz = sdf_data[:, 0:3]
-            sdf_gt = sdf_data[:, 3].unsqueeze(1)
+                # assume batch_split == 1
+                loss = torch.Tensor([0]).float().to(device)
 
-            if enforce_minmax:
-                sdf_gt = torch.clamp(sdf_gt, minT, maxT)
+                def forward_path(pnts, indices):
+                    num_sdf_samples = pnts.shape[0]
+                    indices = indices.unsqueeze(-1).repeat(1, num_samp_per_scene//2).view(-1)
+                    batch_vecs = lat_vecs(indices)
+                    # code.interact(local=locals())
+                    batch_vecs = batch_vecs.to(device)
+                    input = torch.cat([batch_vecs, pnts], dim=1)
+                    pred_sdf = decoder(input)
+                    return pred_sdf
 
-            xyz = torch.chunk(xyz, batch_split)
-            indices = torch.chunk(
-                indices.unsqueeze(-1).repeat(1, num_samp_per_scene).view(-1),
-                batch_split,
-            )
+                def process_set(xyz, batch_split):
+                    """ batch xyz
+                    """
+                    xyz = torch.chunk(xyz, batch_split)
+                    indices = torch.chunk(
+                        indices.unsqueeze(-1).repeat(1, num_samp_per_scene).view(-1),
+                        batch_split,
+                    )
+                    for i in range(batch_split):
+                        # add latent codes
+                        batch_vecs = lat_vecs(indices[i])
+                        input = torch.cat([batch_vecs, xyz[i]], dim=1)
+                        # forward pass
+                        pred_sdf = decoder(input)
 
-            sdf_gt = torch.chunk(sdf_gt, batch_split)
+                    return pred_sdf
 
-            batch_loss = 0.0
+                optimizer_all.zero_grad()
+                # forward pass
+                mnfld_pred = forward_path(mnfld_pnts, indices)
+                nonmnfld_pred = forward_path(nonmnfld_pnts, indices)
 
-            optimizer_all.zero_grad()
+                # loss functions
+                from IGR.model.network import gradient
+                mnfld_grad = gradient(mnfld_pnts, mnfld_pred)
+                nonmnfld_grad = gradient(nonmnfld_pnts, nonmnfld_pred)
 
-            for i in range(batch_split):
+                grad_lambda = 0.1
+                # manifold loss
+                mnfld_loss = (mnfld_pred.abs()).mean()
 
-                batch_vecs = lat_vecs(indices[i])
+                # eikonal loss
+                grad_loss = ((nonmnfld_grad.norm(2, dim=-1) - 1) ** 2).mean()
 
-                input = torch.cat([batch_vecs, xyz[i]], dim=1)
+                loss = mnfld_loss + grad_lambda * grad_loss
+                logging.info(f"loss: {loss}")
+                loss_log.append(loss)
 
-                # NN optimization
-                pred_sdf = decoder(input)
+                loss.backward()
+                optimizer_all.step()
+
+                # loss += process_set(mnfld_pnts, batch_split)
+                # loss += process_set(nonmnfld_pnts, batch_split)
+
+                pass
+
+            def train_sample(sdf_data, indices):
+                # Process the input data
+                sdf_data = sdf_data.reshape(-1, 4)
+
+                num_sdf_samples = sdf_data.shape[0]
+
+                sdf_data.requires_grad = False
+
+                xyz = sdf_data[:, 0:3]
+                sdf_gt = sdf_data[:, 3].unsqueeze(1)
 
                 if enforce_minmax:
-                    pred_sdf = torch.clamp(pred_sdf, minT, maxT)
+                    sdf_gt = torch.clamp(sdf_gt, minT, maxT)
 
-                chunk_loss = loss_l1(pred_sdf, sdf_gt[i].cuda()) / num_sdf_samples
 
-                if do_code_regularization:
-                    l2_size_loss = torch.sum(torch.norm(batch_vecs, dim=1))
-                    reg_loss = (
-                        code_reg_lambda * min(1, epoch / 100) * l2_size_loss
-                    ) / num_sdf_samples
+                xyz = torch.chunk(xyz, batch_split)
+                indices = torch.chunk(
+                    indices.unsqueeze(-1).repeat(1, num_samp_per_scene).view(-1),
+                    batch_split,
+                )
 
-                    chunk_loss = chunk_loss + reg_loss.cuda()
+                # code.interact(local=locals())
 
-                chunk_loss_out = chunk_loss.clone()
-                chunk_loss_out.backward()
+                sdf_gt = torch.chunk(sdf_gt, batch_split)
 
-                batch_loss += chunk_loss.item()
+                batch_loss = 0.0
 
-            logging.debug("loss = {}".format(batch_loss))
+                optimizer_all.zero_grad()
 
-            loss_log.append(batch_loss)
+                for i in range(batch_split):
 
-            if grad_clip is not None:
+                    batch_vecs = lat_vecs(indices[i])
 
-                torch.nn.utils.clip_grad_norm_(decoder.parameters(), grad_clip)
+                    input = torch.cat([batch_vecs, xyz[i]], dim=1)
 
-            optimizer_all.step()
+                    # NN optimization
+                    pred_sdf = decoder(input)
+
+                    if enforce_minmax:
+                        pred_sdf = torch.clamp(pred_sdf, minT, maxT)
+
+                    chunk_loss = loss_l1(pred_sdf, sdf_gt[i].cuda()) / num_sdf_samples
+
+                    if do_code_regularization:
+                        l2_size_loss = torch.sum(torch.norm(batch_vecs, dim=1))
+                        reg_loss = (
+                            code_reg_lambda * min(1, epoch / 100) * l2_size_loss
+                        ) / num_sdf_samples
+
+                        chunk_loss = chunk_loss + reg_loss.cuda()
+
+                    chunk_loss_out = chunk_loss.clone()
+                    chunk_loss_out.backward()
+
+                    batch_loss += chunk_loss.item()
+
+                logging.debug("loss = {}".format(batch_loss))
+
+                loss_log.append(batch_loss)
+
+                if grad_clip is not None:
+
+                    torch.nn.utils.clip_grad_norm_(decoder.parameters(), grad_clip)
+
+                optimizer_all.step()
+
+            if exp_mode == "IGR":
+                train_igr_sample(sdf_data, indices)
+            else:
+                train_sample(sdf_data, indices)
 
         end = time.time()
 
