@@ -15,6 +15,8 @@ import code
 import deep_sdf
 import deep_sdf.workspace as ws
 
+from tensorboardX import SummaryWriter
+from utils.utils_misc import getWriterPath
 
 class LearningRateSchedule:
     def get_learning_rate(self, epoch):
@@ -268,6 +270,9 @@ def main_function(experiment_directory, continue_from, batch_split):
 
     latent_size = specs["CodeLength"]
 
+    writer = SummaryWriter(getWriterPath(prefix=f"{experiment_directory}/", 
+        task=exp_mode, exper_name='', date=True))
+
     checkpoints = list(
         range(
             specs["SnapshotFrequency"],
@@ -314,6 +319,16 @@ def main_function(experiment_directory, continue_from, batch_split):
         mean = torch.mean(lat_mat, 0)
         var = torch.var(lat_mat, 0)
         return mean, var
+
+    def tb_scalar_dict(writer, losses, n_iter, task="training"):
+        """
+        # add scalar dictionary to tensorboard
+        :param losses:
+        :param task:
+        :return:
+        """
+        for element in list(losses):
+            writer.add_scalar(task + "-" + element, losses[element], n_iter)
 
     signal.signal(signal.SIGINT, signal_handler)
 
@@ -415,6 +430,7 @@ def main_function(experiment_directory, continue_from, batch_split):
     lat_mag_log = []
     timing_log = []
     param_mag_log = {}
+    loss_dict = {}
 
     start_epoch = 1
 
@@ -469,6 +485,8 @@ def main_function(experiment_directory, continue_from, batch_split):
         )
     )
 
+    iter = 0
+
     for epoch in range(start_epoch, num_epochs + 1):
 
         start = time.time()
@@ -480,7 +498,7 @@ def main_function(experiment_directory, continue_from, batch_split):
         adjust_learning_rate(lr_schedules, optimizer_all, epoch)
 
         for sdf_data, indices in sdf_loader:
-
+            iter += 1
             # if exp_mode == "IGR":
             #     pass
             # else:
@@ -546,7 +564,14 @@ def main_function(experiment_directory, continue_from, batch_split):
 
                 loss = mnfld_loss + grad_lambda * grad_loss
                 logging.info(f"loss: {loss}")
+                # add loss logs
                 loss_log.append(loss)
+                loss_dict['mnfld_loss'] = mnfld_loss.clone()
+                loss_dict['grad_loss'] = grad_loss.clone()
+                loss_dict['loss'] = loss.clone()
+                loss_dict['grad_lambda'] = grad_lambda
+                loss_dict['epoch'] = epoch
+                tb_scalar_dict(writer, loss_dict,  iter, task='training')
 
                 loss.backward()
                 optimizer_all.step()
