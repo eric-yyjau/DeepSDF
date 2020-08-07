@@ -4,17 +4,14 @@
   "DataSource" : "data",
   "TrainSplit" : "examples/splits/sv2_chairs_train.json",
   "TestSplit" : "examples/splits/sv2_chairs_test.json",
-  "NetworkArch" : "deep_sdf_decoder",
+  "Exp_mode": "IGR",
+  "NetworkArch" : "igr_decoder",
   "NetworkSpecs" : {
     "dims" : [ 512, 512, 512, 512, 512, 512, 512, 512 ],
-    "dropout" : [0, 1, 2, 3, 4, 5, 6, 7],
-    "dropout_prob" : 0.2,
-    "norm_layers" : [0, 1, 2, 3, 4, 5, 6, 7],
-    "latent_in" : [4],
-    "xyz_in_all" : false,
-    "use_tanh" : false,
-    "latent_dropout" : false,
-    "weight_norm" : true
+    "skip_in" : [4],
+    "geometric_init" : true,
+    "radius_init" : 1,
+    "beta": 100
     },
   "loss": "smoothl1",
   "CodeLength" : 256,
@@ -35,7 +32,7 @@
       "Factor" : 0.5
     }],
   "SamplesPerScene" : 16384,
-  "ScenesPerBatch" : 16,
+  "ScenesPerBatch" : 4,
   "DataLoaderThreads" : 4,
   "ClampingDistance" : 1.0,
   "CodeRegularization" : true,
