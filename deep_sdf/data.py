@@ -91,15 +91,40 @@ def unpack_sdf_samples(filename, subsample=None):
 
     return samples
 
-def unpack_surface_samples(filename, subsample=None):
+def unpack_surface_samples(filename, add_samples=False, subsample=None):
+    """
+    return:
+        float tensor (torch.float32)
+    """
     npz = trimesh.load(filename)
     samples = torch.from_numpy(np.array(npz.vertices))
+    
     if subsample is None:
+        assert add_samples == False, "didn't add samples"
         return samples
-    random_idx = (torch.rand(subsample) * samples.shape[0]).long()
-    samples = torch.index_select(samples, 0, random_idx)
 
-    return samples
+    if add_samples:
+        from IGR.model.sample import NormalPerPoint
+        global_sigma = 1.8
+        local_sigma = 0.01
+        sampler = NormalPerPoint(global_sigma, local_sigma)
+        # mnfld_pnts = samples.unsqueeze(0)
+        nonmnfld_pnts = sampler.get_points(samples.unsqueeze(0) )
+        nonmnfld_pnts = nonmnfld_pnts.squeeze(0)
+        mnfld_pnts = samples
+
+        # random sample
+        random_idx = (torch.rand(subsample//2) * mnfld_pnts.shape[0]).long()
+        mnfld_pnts = torch.index_select(mnfld_pnts, 0, random_idx)
+        random_idx = (torch.rand(subsample//2) * nonmnfld_pnts.shape[0]).long()
+        nonmnfld_pnts = torch.index_select(nonmnfld_pnts, 0, random_idx)
+        return (mnfld_pnts.float(), nonmnfld_pnts.float())
+
+    else:
+        random_idx = (torch.rand(subsample) * samples.shape[0]).long()
+        samples = torch.index_select(samples, 0, random_idx)
+
+        return samples.float()
 
 
 
@@ -226,15 +251,20 @@ class SDFSurface(torch.utils.data.Dataset):
         return len(self.npyfiles)
 
     def __getitem__(self, idx):
+        """
+        return:
+            sample:
+                (mnfld_pnts, nonmnfld_pnts), idx
+        """
         filename = os.path.join(
             self.data_source, ws.surface_samples_subdir, self.npyfiles[idx]
         )
-        print(filename)
+        # print(filename)
         # if self.load_ram:
         #     return (
         #         unpack_sdf_samples_from_ram(self.loaded_data[idx], self.subsample),
         #         idx,
         #     )
         # else:
-        return unpack_surface_samples(filename, self.subsample), idx
+        return unpack_surface_samples(filename, add_samples=True, subsample=self.subsample), idx
 
