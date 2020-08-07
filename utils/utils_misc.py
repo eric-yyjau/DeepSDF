@@ -23,3 +23,12 @@ def crop_or_pad_choice(in_num_points, out_num_points, shuffle=False):
         pad = np.random.choice(choice, num_pad, replace=True)
         choice = np.concatenate([choice, pad])
     return choice
+
+def getWriterPath(prefix = 'runs/', task='train', exper_name='', date=True):
+    import datetime
+    str_date_time = ''
+    if exper_name != '':
+        exper_name += '_'
+    if date:
+        str_date_time = datetime.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+    return prefix + task + '/' + exper_name + str_date_time
