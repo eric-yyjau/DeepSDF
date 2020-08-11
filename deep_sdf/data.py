@@ -91,7 +91,7 @@ def unpack_sdf_samples(filename, subsample=None):
 
     return samples
 
-def unpack_surface_samples(filename, add_samples=False, subsample=None):
+def unpack_surface_samples(filename, add_samples=False, subsample=None, global_sigma=0.2, local_sigma=0.01):
     """
     return:
         float tensor (torch.float32)
@@ -105,8 +105,8 @@ def unpack_surface_samples(filename, add_samples=False, subsample=None):
 
     if add_samples:
         from IGR.model.sample import NormalPerPoint
-        global_sigma = 1.8
-        local_sigma = 0.01
+        # global_sigma = 0.2
+        # local_sigma = 0.01
         sampler = NormalPerPoint(global_sigma, local_sigma)
         # mnfld_pnts = samples.unsqueeze(0)
         nonmnfld_pnts = sampler.get_points(samples.unsqueeze(0) )
@@ -217,6 +217,8 @@ class SDFSurface(torch.utils.data.Dataset):
         load_ram=False,
         print_filename=False,
         num_files=1000000,
+        global_sigma=0.2,
+        local_sigma=0.01
     ):
         self.subsample = subsample
 
@@ -232,6 +234,8 @@ class SDFSurface(torch.utils.data.Dataset):
         )
 
         self.load_ram = load_ram
+        self.global_sigma = global_sigma
+        self.local_sigma = local_sigma
 
         # if load_ram:
         #     self.loaded_data = []
@@ -266,5 +270,6 @@ class SDFSurface(torch.utils.data.Dataset):
         #         idx,
         #     )
         # else:
-        return unpack_surface_samples(filename, add_samples=True, subsample=self.subsample), idx
+        return unpack_surface_samples(filename, add_samples=True, subsample=self.subsample,
+            global_sigma=self.global_sigma, local_sigma=self.local_sigma), idx
 

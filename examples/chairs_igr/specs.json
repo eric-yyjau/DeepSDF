@@ -13,6 +13,10 @@
     "radius_init" : 1,
     "beta": 100
     },
+  "DataSpecs" : {
+    "global_sigma" : 0.2,
+    "local_sigma" : 0.01
+  },
   "loss": "smoothl1",
   "CodeLength" : 256,
   "NumEpochs" : 2001,
