@@ -4,22 +4,22 @@
   "DataSource" : "data",
   "TrainSplit" : "examples/splits/sv2_chairs_train.json",
   "TestSplit" : "examples/splits/sv2_chairs_test.json",
-  "Exp_mode": "IGR",
-  "NetworkArch" : "igr_decoder",
+  "Exp_mode": "IGR_loss",
+  "NetworkArch" : "deep_sdf_decoder",
   "NetworkSpecs" : {
     "dims" : [ 512, 512, 512, 512, 512, 512, 512, 512 ],
-    "skip_in" : [4],
-    "geometric_init" : true,
-    "radius_init" : 1,
-    "beta": 100
+    "dropout" : [0, 1, 2, 3, 4, 5, 6, 7],
+    "dropout_prob" : 0.2,
+    "norm_layers" : [0, 1, 2, 3, 4, 5, 6, 7],
+    "latent_in" : [4],
+    "xyz_in_all" : false,
+    "use_tanh" : false,
+    "latent_dropout" : false,
+    "weight_norm" : true
     },
-  "DataSpecs" : {
-    "global_sigma" : 1.8,
-    "local_sigma" : 0.01
-  },
   "loss": "smoothl1",
   "CodeLength" : 256,
-  "NumEpochs" : 2001,
+  "NumEpochs" : 1001,
   "SnapshotFrequency" : 10,
   "AdditionalSnapshots" : [ 100, 500 ],
   "LearningRateSchedule" : [
@@ -36,10 +36,10 @@
       "Factor" : 0.5
     }],
   "SamplesPerScene" : 16384,
-  "ScenesPerBatch" : 4,
+  "ScenesPerBatch" : 2,
   "DataLoaderThreads" : 4,
   "ClampingDistance" : 1.0,
-  "CodeRegularization" : false,
+  "CodeRegularization" : true,
   "CodeRegularizationLambda" : 1e-4,
   "CodeBound" : 1.0
 }
