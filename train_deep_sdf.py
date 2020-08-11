@@ -407,9 +407,9 @@ def main_function(experiment_directory, continue_from, batch_split):
     loss_func = get_spec_with_default(specs, "loss", "l1")
     logging.info(f"Use {loss_func} loss")
     if loss_func == "l1":
-        loss_l1 = torch.nn.L1Loss(reduction="sum")
+        loss_func = torch.nn.L1Loss(reduction="sum")
     elif loss_func == "smoothl1":
-        loss_l1 = torch.nn.SmoothL1Loss(reduction="sum")
+        loss_func = torch.nn.SmoothL1Loss(reduction="sum")
         assert clamp_dist > 0.5, "clamp dist contradicts the smooth loss"
     else:
         raise NotImplementedError
@@ -528,29 +528,29 @@ def main_function(experiment_directory, continue_from, batch_split):
                     batch_vecs = batch_vecs.to(device)
                     input = torch.cat([batch_vecs, pnts], dim=1)
                     pred_sdf = decoder(input)
-                    return pred_sdf
+                    return pred_sdf, batch_vecs, num_sdf_samples
 
-                def process_set(xyz, batch_split):
-                    """ batch xyz
-                    """
-                    xyz = torch.chunk(xyz, batch_split)
-                    indices = torch.chunk(
-                        indices.unsqueeze(-1).repeat(1, num_samp_per_scene).view(-1),
-                        batch_split,
-                    )
-                    for i in range(batch_split):
-                        # add latent codes
-                        batch_vecs = lat_vecs(indices[i])
-                        input = torch.cat([batch_vecs, xyz[i]], dim=1)
-                        # forward pass
-                        pred_sdf = decoder(input)
+                # def process_set(xyz, batch_split):
+                #     """ batch xyz
+                #     """
+                #     xyz = torch.chunk(xyz, batch_split)
+                #     indices = torch.chunk(
+                #         indices.unsqueeze(-1).repeat(1, num_samp_per_scene).view(-1),
+                #         batch_split,
+                #     )
+                #     for i in range(batch_split):
+                #         # add latent codes
+                #         batch_vecs = lat_vecs(indices[i])
+                #         input = torch.cat([batch_vecs, xyz[i]], dim=1)
+                #         # forward pass
+                #         pred_sdf = decoder(input)
 
-                    return pred_sdf
+                #     return pred_sdf, batch_vecs
 
                 optimizer_all.zero_grad()
                 # forward pass
-                mnfld_pred = forward_path(mnfld_pnts, indices)
-                nonmnfld_pred = forward_path(nonmnfld_pnts, indices)
+                mnfld_pred, batch_vecs, num_sdf_samples = forward_path(mnfld_pnts, indices)
+                nonmnfld_pred, _, _ = forward_path(nonmnfld_pnts, indices)
 
                 # loss functions
                 from IGR.model.network import gradient
@@ -559,12 +559,27 @@ def main_function(experiment_directory, continue_from, batch_split):
 
                 grad_lambda = 0.1
                 # manifold loss
-                mnfld_loss = (mnfld_pred.abs()).mean()
+                # mnfld_loss = (mnfld_pred.abs()).mean()
+                mnfld_loss = (mnfld_pred.norm(2, dim=-1) ** 2).mean()
 
                 # eikonal loss
                 grad_loss = ((nonmnfld_grad.norm(2, dim=-1) - 1) ** 2).mean()
 
                 loss = mnfld_loss + grad_lambda * grad_loss
+
+                # l2 reg loss
+                if do_code_regularization:
+                    l2_size_loss = torch.sum(torch.norm(batch_vecs, dim=1))
+                    reg_loss = (
+                        code_reg_lambda * min(1, epoch / 100) * l2_size_loss
+                    ) / num_sdf_samples
+
+                    loss = loss + reg_loss.to(device)
+                    loss_dict['loss/reg_loss'] = reg_loss.detach() 
+                    loss_dict['loss/l2_size_loss'] = l2_size_loss.detach() 
+                    loss_dict['params/code_reg_lambda'] = code_reg_lambda
+                    loss_dict['params/code_reg_lambda_final'] = code_reg_lambda * min(1, epoch / 100)
+
                 # logging.info(f"loss: {loss}")
                 # add loss logs
                 loss_log.append(loss.detach().item())
@@ -583,7 +598,7 @@ def main_function(experiment_directory, continue_from, batch_split):
 
                 pass
 
-            def train_sample(sdf_data, indices):
+            def train_sample(sdf_data, indices, exp_mode=''):
                 # Process the input data
                 sdf_data = sdf_data.reshape(-1, 4)
 
@@ -591,8 +606,8 @@ def main_function(experiment_directory, continue_from, batch_split):
 
                 sdf_data.requires_grad = False
 
-                xyz = sdf_data[:, 0:3]
-                sdf_gt = sdf_data[:, 3].unsqueeze(1)
+                xyz = sdf_data[:, 0:3].to(device)
+                sdf_gt = sdf_data[:, 3].unsqueeze(1).to(device)
 
                 if enforce_minmax:
                     sdf_gt = torch.clamp(sdf_gt, minT, maxT)
@@ -614,7 +629,10 @@ def main_function(experiment_directory, continue_from, batch_split):
 
                 for i in range(batch_split):
 
-                    batch_vecs = lat_vecs(indices[i])
+                    batch_vecs = lat_vecs(indices[i]).to(device)
+
+                    if exp_mode == "IGR_loss":
+                        xyz[i].requires_grad_()
 
                     input = torch.cat([batch_vecs, xyz[i]], dim=1)
 
@@ -624,20 +642,43 @@ def main_function(experiment_directory, continue_from, batch_split):
                     if enforce_minmax:
                         pred_sdf = torch.clamp(pred_sdf, minT, maxT)
 
-                    chunk_loss = loss_l1(pred_sdf, sdf_gt[i].cuda()) / num_sdf_samples
+                    chunk_loss = loss_func(pred_sdf, sdf_gt[i].to(device)) / num_sdf_samples
+                    loss_dict['loss/sdf_loss'] = chunk_loss.detach() # .clone()
+
 
                     if do_code_regularization:
                         l2_size_loss = torch.sum(torch.norm(batch_vecs, dim=1))
                         reg_loss = (
                             code_reg_lambda * min(1, epoch / 100) * l2_size_loss
                         ) / num_sdf_samples
+                    
+                        chunk_loss = chunk_loss + reg_loss.to(device)
 
-                        chunk_loss = chunk_loss + reg_loss.cuda()
+                        loss_dict['loss/reg_loss'] = reg_loss.detach() 
+                        loss_dict['loss/l2_size_loss'] = l2_size_loss.detach() 
+                        loss_dict['params/code_reg_lambda'] = code_reg_lambda
+                        loss_dict['params/code_reg_lambda_final'] = code_reg_lambda * min(1, epoch / 100)
+
+                    if exp_mode == "IGR_loss":
+                        from IGR.model.network import gradient
+                        # mnfld_grad = gradient(mnfld_pnts, mnfld_pred)
+                        nonmnfld_grad = gradient(xyz[i], pred_sdf)
+                        grad_lambda = 0.1
+                        # eikonal loss
+                        grad_loss = ((nonmnfld_grad.norm(2, dim=-1) - 1) ** 2).mean()
+                        chunk_loss = chunk_loss + grad_lambda * grad_loss
+
+                        loss_dict['loss/grad_loss'] = grad_loss.detach() # .clone()
+                        loss_dict['params/grad_lambda'] = grad_lambda
 
                     chunk_loss_out = chunk_loss.clone()
                     chunk_loss_out.backward()
 
                     batch_loss += chunk_loss.item()
+
+                loss_dict['loss/loss'] = batch_loss # .clone()
+                loss_dict['params/epoch'] = epoch
+                tb_scalar_dict(writer, loss_dict,  iter, task='training')
 
                 logging.debug("loss = {}".format(batch_loss))
 
@@ -652,7 +693,7 @@ def main_function(experiment_directory, continue_from, batch_split):
             if exp_mode == "IGR":
                 train_igr_sample(sdf_data, indices)
             else:
-                train_sample(sdf_data, indices)
+                train_sample(sdf_data, indices, exp_mode=exp_mode)
 
         end = time.time()
 

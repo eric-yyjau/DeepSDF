@@ -14,7 +14,7 @@
     "beta": 100
     },
   "DataSpecs" : {
-    "global_sigma" : 1.8,
+    "global_sigma" : 0.2,
     "local_sigma" : 0.01
   },
   "loss": "smoothl1",
@@ -39,7 +39,7 @@
   "ScenesPerBatch" : 4,
   "DataLoaderThreads" : 4,
   "ClampingDistance" : 1.0,
-  "CodeRegularization" : false,
+  "CodeRegularization" : true,
   "CodeRegularizationLambda" : 1e-4,
   "CodeBound" : 1.0
 }
