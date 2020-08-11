@@ -365,7 +365,7 @@ def main_function(experiment_directory, continue_from, batch_split):
 
     if exp_mode == "IGR":
         sdf_dataset = deep_sdf.data.SDFSurface(
-            data_source, train_split, num_samp_per_scene, load_ram=False
+            data_source, train_split, num_samp_per_scene, load_ram=False, **specs["DataSpecs"]
         )
     else:    
         sdf_dataset = deep_sdf.data.SDFSamples(
