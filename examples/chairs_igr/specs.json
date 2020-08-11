@@ -16,7 +16,7 @@
   "loss": "smoothl1",
   "CodeLength" : 256,
   "NumEpochs" : 2001,
-  "SnapshotFrequency" : 1000,
+  "SnapshotFrequency" : 10,
   "AdditionalSnapshots" : [ 100, 500 ],
   "LearningRateSchedule" : [
     {
@@ -35,7 +35,7 @@
   "ScenesPerBatch" : 4,
   "DataLoaderThreads" : 4,
   "ClampingDistance" : 1.0,
-  "CodeRegularization" : true,
+  "CodeRegularization" : false,
   "CodeRegularizationLambda" : 1e-4,
   "CodeBound" : 1.0
 }

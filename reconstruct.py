@@ -12,6 +12,8 @@ import torch
 import deep_sdf
 import deep_sdf.workspace as ws
 
+from tqdm import tqdm
+
 
 def reconstruct(
     decoder,
@@ -23,6 +25,7 @@ def reconstruct(
     num_samples=30000,
     lr=5e-4,
     l2reg=False,
+    exp_mode='',
 ):
     def adjust_learning_rate(
         initial_lr, optimizer, num_iterations, decreased_by, adjust_lr_every
@@ -53,6 +56,9 @@ def reconstruct(
             test_sdf, num_samples
         ).cuda()
         xyz = sdf_data[:, 0:3]
+        if exp_mode == 'IGR':
+            xyz.requires_grad_()
+
         sdf_gt = sdf_data[:, 3].unsqueeze(1)
 
         sdf_gt = torch.clamp(sdf_gt, -clamp_dist, clamp_dist)
@@ -71,9 +77,26 @@ def reconstruct(
         if e == 0:
             pred_sdf = decoder(inputs)
 
-        pred_sdf = torch.clamp(pred_sdf, -clamp_dist, clamp_dist)
+        
+        if exp_mode == 'IGR':
+            # loss functions
+            from IGR.model.network import gradient
+            # mnfld_grad = gradient(mnfld_pnts, mnfld_pred)
+            mnfld_pred = pred_sdf
+            nonmnfld_grad = gradient(xyz, mnfld_pred)
 
-        loss = loss_l1(pred_sdf, sdf_gt)
+            grad_lambda = 0.1
+            # manifold loss
+            mnfld_loss = (mnfld_pred.abs()).mean()
+
+            # eikonal loss
+            grad_loss = ((nonmnfld_grad.norm(2, dim=-1) - 1) ** 2).mean()
+
+            loss = mnfld_loss + grad_lambda * grad_loss
+            logging.info(f"loss: {loss}") # 2 times the training loss, as we put 2 losses on one points
+        else:
+            pred_sdf = torch.clamp(pred_sdf, -clamp_dist, clamp_dist)
+            loss = loss_l1(pred_sdf, sdf_gt)
         if l2reg:
             loss += 1e-4 * torch.mean(latent.pow(2))
         loss.backward()
@@ -159,11 +182,21 @@ if __name__ == "__main__":
 
     specs = json.load(open(specs_filename))
 
+    exp_mode = specs.get('Exp_mode', '')
+    logging.info(f"Experiment mode: {exp_mode}")
+    clamp_dist = specs.get('ClampingDistance', 0.1)
+    logging.info(f"ClampingDistance: {clamp_dist}")
+    do_code_regularization = specs.get("CodeRegularization", True)
+
     arch = __import__("networks." + specs["NetworkArch"], fromlist=["Decoder"])
 
     latent_size = specs["CodeLength"]
 
-    decoder = arch.Decoder(latent_size, **specs["NetworkSpecs"])
+    # decoder = arch.Decoder(latent_size, **specs["NetworkSpecs"])
+    if exp_mode == "IGR":
+        decoder = arch.Decoder(3+latent_size, **specs["NetworkSpecs"]).cuda()
+    else:
+        decoder = arch.Decoder(latent_size, **specs["NetworkSpecs"]).cuda()
 
     decoder = torch.nn.DataParallel(decoder)
 
@@ -181,7 +214,7 @@ if __name__ == "__main__":
     with open(args.split_filename, "r") as f:
         split = json.load(f)
 
-    npz_filenames = deep_sdf.data.get_instance_filenames(args.data_source, split)
+    npz_filenames = deep_sdf.data.get_instance_filenames(args.data_source, split, ws.sdf_samples_subdir)
 
     random.shuffle(npz_filenames)
 
@@ -211,7 +244,10 @@ if __name__ == "__main__":
     if not os.path.isdir(reconstruction_codes_dir):
         os.makedirs(reconstruction_codes_dir)
 
-    for ii, npz in enumerate(npz_filenames):
+    for ii, npz in tqdm(enumerate(npz_filenames)):
+        if ii>5:
+            logging.info("early stop")
+            break
 
         if "npz" not in npz:
             continue
@@ -223,6 +259,7 @@ if __name__ == "__main__":
         data_sdf = deep_sdf.data.read_sdf_samples_into_ram(full_filename)
 
         for k in range(repeat):
+
 
             if rerun > 1:
                 mesh_filename = os.path.join(
@@ -256,10 +293,11 @@ if __name__ == "__main__":
                 latent_size,
                 data_sdf,
                 0.01,  # [emp_mean,emp_var],
-                0.1,
+                clamp_dist,
                 num_samples=8000,
                 lr=5e-3,
-                l2reg=True,
+                l2reg=do_code_regularization,
+                exp_mode=exp_mode
             )
             logging.debug("reconstruct time: {}".format(time.time() - start))
             err_sum += err

@@ -10,8 +10,12 @@ import torch
 import deep_sdf
 import deep_sdf.workspace as ws
 
+import logging
+from tqdm import tqdm
+
 
 def code_to_mesh(experiment_directory, checkpoint, keep_normalized=False):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     specs_filename = os.path.join(experiment_directory, "specs.json")
 
@@ -21,12 +25,19 @@ def code_to_mesh(experiment_directory, checkpoint, keep_normalized=False):
         )
 
     specs = json.load(open(specs_filename))
+    exp_mode = specs.get('Exp_mode', '')
+    logging.info(f"Experiment mode: {exp_mode}")
 
     arch = __import__("networks." + specs["NetworkArch"], fromlist=["Decoder"])
 
     latent_size = specs["CodeLength"]
 
-    decoder = arch.Decoder(latent_size, **specs["NetworkSpecs"])
+    # decoder = arch.Decoder(latent_size, **specs["NetworkSpecs"])
+    if exp_mode == "IGR":
+        decoder = arch.Decoder(3+latent_size, **specs["NetworkSpecs"])
+    else:
+        decoder = arch.Decoder(latent_size, **specs["NetworkSpecs"])
+
 
     decoder = torch.nn.DataParallel(decoder)
 
@@ -37,11 +48,11 @@ def code_to_mesh(experiment_directory, checkpoint, keep_normalized=False):
 
     decoder.load_state_dict(saved_model_state["model_state_dict"])
 
-    decoder = decoder.module.cuda()
+    decoder = decoder.module.to(device)
 
     decoder.eval()
 
-    latent_vectors = ws.load_latent_vectors(experiment_directory, checkpoint)
+    latent_vectors = ws.load_latent_vectors(experiment_directory, checkpoint).to(device)
 
     train_split_file = specs["TrainSplit"]
 
@@ -50,11 +61,15 @@ def code_to_mesh(experiment_directory, checkpoint, keep_normalized=False):
 
     data_source = specs["DataSource"]
 
-    instance_filenames = deep_sdf.data.get_instance_filenames(data_source, train_split)
+    # instance_filenames = deep_sdf.data.get_instance_filenames(data_source, train_split)
+    instance_filenames = deep_sdf.data.get_instance_filenames(data_source, train_split, ws.sdf_samples_subdir)
 
     print(len(instance_filenames), " vs ", len(latent_vectors))
 
-    for i, latent_vector in enumerate(latent_vectors):
+    for i, latent_vector in tqdm(enumerate(latent_vectors) ):
+        if i>5:
+            logging.info("early stop")
+            break
 
         dataset_name, class_name, instance_name = instance_filenames[i].split("/")
         instance_name = instance_name.split(".")[0]
