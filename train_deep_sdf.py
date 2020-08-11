@@ -15,6 +15,8 @@ import code
 import deep_sdf
 import deep_sdf.workspace as ws
 
+from tqdm import tqdm
+
 from tensorboardX import SummaryWriter
 from utils.utils_misc import getWriterPath
 
@@ -497,7 +499,7 @@ def main_function(experiment_directory, continue_from, batch_split):
 
         adjust_learning_rate(lr_schedules, optimizer_all, epoch)
 
-        for sdf_data, indices in sdf_loader:
+        for sdf_data, indices in tqdm(sdf_loader):
             iter += 1
             # if exp_mode == "IGR":
             #     pass
@@ -552,7 +554,7 @@ def main_function(experiment_directory, continue_from, batch_split):
 
                 # loss functions
                 from IGR.model.network import gradient
-                mnfld_grad = gradient(mnfld_pnts, mnfld_pred)
+                # mnfld_grad = gradient(mnfld_pnts, mnfld_pred)
                 nonmnfld_grad = gradient(nonmnfld_pnts, nonmnfld_pred)
 
                 grad_lambda = 0.1
@@ -563,14 +565,14 @@ def main_function(experiment_directory, continue_from, batch_split):
                 grad_loss = ((nonmnfld_grad.norm(2, dim=-1) - 1) ** 2).mean()
 
                 loss = mnfld_loss + grad_lambda * grad_loss
-                logging.info(f"loss: {loss}")
+                # logging.info(f"loss: {loss}")
                 # add loss logs
-                loss_log.append(loss)
-                loss_dict['mnfld_loss'] = mnfld_loss.clone()
-                loss_dict['grad_loss'] = grad_loss.clone()
-                loss_dict['loss'] = loss.clone()
-                loss_dict['grad_lambda'] = grad_lambda
-                loss_dict['epoch'] = epoch
+                loss_log.append(loss.detach().item())
+                loss_dict['loss/mnfld_loss'] = mnfld_loss.detach() # .clone()
+                loss_dict['loss/grad_loss'] = grad_loss.detach() # .clone()
+                loss_dict['loss/loss'] = loss.detach() # .clone()
+                loss_dict['params/grad_lambda'] = grad_lambda
+                loss_dict['params/epoch'] = epoch
                 tb_scalar_dict(writer, loss_dict,  iter, task='training')
 
                 loss.backward()
