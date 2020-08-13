@@ -19,6 +19,7 @@ from tqdm import tqdm
 
 from tensorboardX import SummaryWriter
 from utils.utils_misc import getWriterPath
+from utils.load_utils import load_model
 
 class LearningRateSchedule:
     def get_learning_rate(self, epoch):
@@ -346,10 +347,11 @@ def main_function(experiment_directory, continue_from, batch_split):
 
     code_bound = get_spec_with_default(specs, "CodeBound", None)
 
-    if exp_mode == "IGR" or exp_mode == "IGR_net_loss":
-        decoder = arch.Decoder(3+latent_size, **specs["NetworkSpecs"]).cuda()
-    else:
-        decoder = arch.Decoder(latent_size, **specs["NetworkSpecs"]).cuda()
+    # if exp_mode == "IGR" or exp_mode == "IGR_net_loss":
+    #     decoder = arch.Decoder(3+latent_size, **specs["NetworkSpecs"]).cuda()
+    # else:
+    #     decoder = arch.Decoder(latent_size, **specs["NetworkSpecs"]).cuda()
+    decoder = load_model(arch, specs, exp_mode)
 
     logging.info("training with {} GPU(s)".format(torch.cuda.device_count()))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
