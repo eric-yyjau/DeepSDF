@@ -346,7 +346,7 @@ def main_function(experiment_directory, continue_from, batch_split):
 
     code_bound = get_spec_with_default(specs, "CodeBound", None)
 
-    if exp_mode == "IGR":
+    if exp_mode == "IGR" or exp_mode == "IGR_net_loss":
         decoder = arch.Decoder(3+latent_size, **specs["NetworkSpecs"]).cuda()
     else:
         decoder = arch.Decoder(latent_size, **specs["NetworkSpecs"]).cuda()
