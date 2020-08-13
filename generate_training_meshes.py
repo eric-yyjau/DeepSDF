@@ -13,6 +13,8 @@ import deep_sdf.workspace as ws
 import logging
 from tqdm import tqdm
 
+from utils.load_utils import load_model
+
 
 def code_to_mesh(experiment_directory, checkpoint, keep_normalized=False):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -30,14 +32,13 @@ def code_to_mesh(experiment_directory, checkpoint, keep_normalized=False):
 
     arch = __import__("networks." + specs["NetworkArch"], fromlist=["Decoder"])
 
-    latent_size = specs["CodeLength"]
 
     # decoder = arch.Decoder(latent_size, **specs["NetworkSpecs"])
-    if exp_mode == "IGR":
-        decoder = arch.Decoder(3+latent_size, **specs["NetworkSpecs"])
-    else:
-        decoder = arch.Decoder(latent_size, **specs["NetworkSpecs"])
-
+    # if exp_mode == "IGR":
+    #     decoder = arch.Decoder(3+latent_size, **specs["NetworkSpecs"])
+    # else:
+    #     decoder = arch.Decoder(latent_size, **specs["NetworkSpecs"])
+    decoder = load_model(arch, specs, exp_mode)
 
     decoder = torch.nn.DataParallel(decoder)
 
