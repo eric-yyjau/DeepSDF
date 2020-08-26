@@ -134,6 +134,7 @@ python train_deep_sdf.py -e examples/chairs_smoothl1
 ```
 
 #### Training a model with IGR net and loss
+Modified from [Implicit Geometric Regularization](https://github.com/peisuke/ImplicitGeometricRegularization.pytorch).
 ```
 python train_deep_sdf.py -e examples/chairs_igr-loss_v0
 ```
