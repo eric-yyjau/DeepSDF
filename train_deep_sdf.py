@@ -11,6 +11,8 @@ import math
 import json
 import time
 import code
+import argparse
+
 
 import deep_sdf
 import deep_sdf.workspace as ws
@@ -727,7 +729,6 @@ def main_function(experiment_directory, continue_from, batch_split):
 
 if __name__ == "__main__":
 
-    import argparse
 
     arg_parser = argparse.ArgumentParser(description="Train a DeepSDF autodecoder")
     arg_parser.add_argument(
