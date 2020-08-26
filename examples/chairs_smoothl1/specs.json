@@ -19,7 +19,7 @@
   "loss": "smoothl1",
   "CodeLength" : 256,
   "NumEpochs" : 2001,
-  "SnapshotFrequency" : 1000,
+  "SnapshotFrequency" : 100,
   "AdditionalSnapshots" : [ 100, 500 ],
   "LearningRateSchedule" : [
     {

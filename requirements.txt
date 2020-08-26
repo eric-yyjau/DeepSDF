@@ -1,4 +1,15 @@
 tensorboardX
 tensorboard
-
+argparse
+matplotlib
+tqdm
+pyyaml
+jupyter
+scikit-learn
+ipython
+plyfile
+scikit-image
+trimesh
+coloredlogs
+termcolor
 open3d==0.9.0.0 

@@ -107,7 +107,18 @@ The preprocessing script requires an OpenGL context, and to acquire one it will 
 export PANGOLIN_WINDOW_URI=headless://
 ```
 
+### Set up the environment for training
+```
+conda create -n py36-deepsdf python=3.6 pip
+conda activate py36-deepsdf
+pip install -r requirements.txt
+pip install -r requirements_torch.txt
+
+```
+
+
 ### Training a Model
+
 
 Once data has been preprocessed, models can be trained using:
 
@@ -116,6 +127,17 @@ python train_deep_sdf.py -e <experiment_directory>
 ```
 
 Parameters of training are stored in a "specification file" in the experiment directory, which (1) avoids proliferation of command line arguments and (2) allows for easy reproducibility. This specification file includes a reference to the data directory and a split file specifying which subset of the data to use for training.
+
+#### Training a model with smooth l1 loss
+```
+python train_deep_sdf.py -e examples/chairs_smoothl1
+```
+
+#### Training a model with IGR net and loss
+```
+python train_deep_sdf.py -e examples/chairs_igr-loss_v0
+```
+
 
 ##### Visualizing Progress
 
