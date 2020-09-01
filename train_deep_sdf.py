@@ -262,6 +262,7 @@ def main_function(experiment_directory, continue_from, batch_split):
 
     specs = ws.load_experiment_specifications(experiment_directory)
 
+    logging.info(f"Full spec: \n {specs}")
     logging.info(f"Experiment description: \n {specs['Description']}")
     exp_mode = specs.get('Exp_mode', '')
     logging.info(f"Experiment mode: {exp_mode}")
